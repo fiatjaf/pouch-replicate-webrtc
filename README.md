@@ -22,35 +22,31 @@ $ npm install --save pouch-replicate-webrtc
 
 ### On Clientside
 
-You can import the pouch-replicate-webrtc.min.js from the dist folder.
-
-Alternatively, you can user Bower to install it:
-```
-$ bower install --save pouch-replicate-webrtc
-```
+You can import the pouch-replicate-webrtc.min.js from the dist folder and have `PouchReplicator` as a global variable, or you can use browserify.
 
 ## Usage
 
-Example using [rtc-quickconnect](https://github.com/rtc-io/rtc-quickconnect):
+You'll need to setup a valid [RTCDataChannel](https://developer.mozilla.org/en-US/docs/Web/API/RTCDataChannel). This library doesn't care how. Here's a [dirty-hands as-simple-as-possible example](https://gist.github.com/fiatjaf/229a5db2f431ab707e3fb909240dcdf2) of how to do so, but there are also a lot of libraries that claim to make that job easier out there.
 
-```
-var PouchDB = require('pouchdb');
-var PouchReplicator = require('pouch-replicate-webrtc');
-var quickconnect = require('rtc-quickconnect');
+Example:
 
-var pouchDb = new PouchDB('myDb');
-var replicator = new PouchReplicator('replicator', pouchDb, {batch_size: 50});
+```javascript
+var PouchDB = require('pouchdb')  // not included
+var PouchReplicator = require('pouch-replicate-webrtc')
 
-replicator.on('endpeerreplicate', function() {
-  console.log('received data from replication');
-});
+var db = new PouchDB('webrtc-replicated-pouch')
+var replicator = new PouchReplicator('replicator', PouchDB, db, {batch_size: 50})
 
-quickconnect('https://switchboard.rtc.io/', { room: 'qc-simple-demo' })
-  .createDataChannel('replication')
-  .on('channel:opened:replication', function(id, dc) {
-    replicator.addPeer(id, dc);
-    replicator.replicate();
-  });
+replicator.on('endpeerreplicate', function () {
+  console.log('received data from replication')
+})
+
+db.post({description: 'a document to be replicated via webrtc', value: Math.random()})
+
+getSomehowAValidRTCDataChannel(function (remotePeerId, datachannel) {
+  replicator.addPeer(remotePeerId, datachannel)
+  replicator.replicate()
+})
 
 ```
 

@@ -1,8 +1,8 @@
 {
   "name": "pouch-replicate-webrtc",
-  "version": "0.0.9",
+  "version": "0.1.0",
   "description": "Replicate a PouchDB over a WebRTC DataChannel.",
-  "homepage": "https://github.com/scottmtp/pouch-replicate-webrtc",
+  "homepage": "https://github.com/fiatjaf/pouch-replicate-webrtc",
   "author": {
     "name": "Scott Dietrich",
     "email": "scott@minutestopost.com",
@@ -28,9 +28,7 @@
   ],
   "dependencies": {
     "concat-stream": "^1.5.0",
-    "pouchdb": "5.0.0",
-    "pouchdb-replication-stream": "1.2.5",
-    "promise": "^7.0.1",
+    "pouchdb-replication-stream": "^1.2.9",
     "replicate-common": "0.0.5",
     "typedarray-to-buffer": "^3.0.3"
   },
@@ -38,17 +36,15 @@
     "chai": "^3.0.0",
     "chai-as-promised": "~5.1.0",
     "cuid": "1.2.5",
-    "grunt": "^0.4.5",
-    "grunt-browserify": "^3.8.0",
-    "grunt-contrib-uglify": "^0.9.1",
-    "grunt-contrib-watch": "^0.6.1",
     "istanbul": "^0.2.7",
     "jshint-stylish": "^1.0.1",
     "memdown": "^1.0.0",
-    "mocha": "^2.2.5"
+    "mocha": "^2.2.5",
+    "pouchdb-browser": "^6.0.6",
+    "pouchdb-node": "^6.0.6"
   },
   "scripts": {
-    "browserify": "browserify -r pouchdb -r ./index.js:pouch-replicate-webrtc > dist/pouch-replicate-webrtc.js; uglify -s dist/pouch-replicate-webrtc.js -o dist/pouch-replicate-webrtc.min.js",
+    "browserify": "browserify --standalone PouchReplicator ./index.js > dist/pouch-replicate-webrtc.js; uglifyjs dist/pouch-replicate-webrtc.js -o dist/pouch-replicate-webrtc.min.js",
     "test": "mocha --reporter spec",
     "coverage": "istanbul cover _mocha -- test/ -R spec"
   }
