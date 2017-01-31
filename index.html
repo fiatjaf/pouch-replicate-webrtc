@@ -131,7 +131,7 @@ peer.onicecandidate = function (e) {
   }))
 }
 
-var ws = new WebSocket('wss://sky-sound.hyperdev.space')
+var ws = new WebSocket('wss://sky-sound.gomix.me/')
 ws.onopen = e => log('websocket opened')
 ws.onclose = e => log('websocket closed')
 ws.onmessage = e => {
