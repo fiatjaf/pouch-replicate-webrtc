@@ -6,34 +6,46 @@ div { margin-top: 20px; }
 pre {
   float: left;
   width: 40%;
+  margin-left: 5%;
   overflow: hidden;
   height: 400px;
 }
-code {
+#changes,
+#logger { white-space: pre-wrap; }
+#their-data,
+#our-data {
+  height: 100px;
+  width: 100%;
+  display: block;
+  margin-bottom: 5px;
+}
+#our-data {
+  background-color: wheat;
+  display: block;
   white-space: pre-wrap;
+  word-break: break-all;
+  height: 100px;
+  overflow-y: scroll;
 }
 </style>
 
 <div>
-  <label>local peer name: <input id="me"> (saved on blur)</label>
-</div>
-<div>
-  <label>remote peer name: <input id="other"> (saved on blur)</label>
+  <button id="start">start</button>
 </div>
 
 <div>
-  proceed when both peers have written the correct name of each other:
-  <button id="connect">connect</button>
+  <label>our data (send this to your peer): <code id="our-data" readonly></code></label>
+</div>
+<div>
+  <label>their data (paste data received from your peer here):
+    <textarea id="their-data"></textarea>
+  </label>
+  <button id="their-data-ok">ok</button>
 </div>
 
 <div>
   add document to local pouchdb:
   <button id="add">create</button>
-</div>
-
-<div>
-  proceed after a connection has been established:
-  <button id="replicate">replicate</button>
 </div>
 
 <div>
@@ -47,27 +59,17 @@ code {
 ae037e80f15/dist/pouch-replicate-webrtc.js"></script>
 <script>
 
-var me = document.getElementById('me').value = localStorage.getItem('me')
-var other = document.getElementById('other').value = localStorage.getItem('other')
-document.getElementById('me').addEventListener('blur', e => {
-  me = e.target.value
-  localStorage.setItem('me', me)
-  log(`'me' set to '${me}'`)
-})
-document.getElementById('other').addEventListener('blur', e => {
-  other = e.target.value
-  localStorage.setItem('other', other)
-  log(`'other' set to '${other}'`)
-})
+var position = 'answerer' // or 'offerer' -- offerer is whoever clicks on 'start' first
 
+var logcount = 0
 var logger = document.getElementById('logger')
 var log = function () {
   console.log.apply(console, arguments)
-  logger.innerHTML = arguments[0] + '\n' + logger.innerHTML
+  logcount++
+  logger.innerHTML = logcount + '. ' + arguments[0] + '\n' + logger.innerHTML
 }
 
-document.getElementById('connect').addEventListener('click', connect)
-document.getElementById('replicate').addEventListener('click', replicate)
+document.getElementById('start').addEventListener('click', start)
 
 var db
 var replicator
@@ -81,7 +83,7 @@ function createDatabase () {
     .on('change', change => {
       changelogger.innerHTML = JSON.stringify(change.doc) + '\n' + changelogger.innerHTML
     })
-    .on('error', e => log('pouchdb changes error'))
+    .on('error', e => log('pouchdb changes error.', e))
 }
 createDatabase()
 
@@ -92,6 +94,7 @@ document.getElementById('add').addEventListener('click', () => {
     _id: 'doc-' + parseInt(Math.random() * 100),
     value: parseInt(Math.random() * 100)
   })
+  .then(() => replicate())
 })
 
 document.getElementById('destroy').addEventListener('click', () => {
@@ -101,98 +104,123 @@ document.getElementById('destroy').addEventListener('click', () => {
       changelogger.innerHTML = ''
       createDatabase()
     })
-    .catch(() => log('error erasing db'))
+    .catch(e => log('error erasing db.', e))
 })
 
 var peer = new RTCPeerConnection({iceServers: [
   {urls: ['stun:stun.l.google.com:19305']},
-  {urls: ['stun:stun1.l.google.com:19305']},
-  {urls: ['stun:stun2.l.google.com:19305']},
-  {urls: ['stun:stun3.l.google.com:19305']},
-  {urls: ['stun:stun.jappix.com:3478']}
+  {urls: ['stun:stun1.l.google.com:19305']}
 ]})
 
 var channel
 
 peer.ondatachannel = function (e) {
   channel = e.channel
-  channel.onopen = e => log('channel opened', e)
-  channel.onclose = e => log('channel closed', e)
-  channel.onmessage = e => log('got message', e)
+  channel.onopen = e => {
+    log('channel opened.', e)
+    replicate()
+  }
+  channel.onclose = e => log('channel closed.')
+  channel.onmessage = e => log('got message.')
+}
+
+var ourdata = {candidates: [], desc: null}
+
+function writeOurData () {
+  if (ourdata.desc && ourdata.candidates.length > 1) {
+    var jsonstring = JSON.stringify(ourdata)
+    var escaped = escape(jsonstring)
+    document.getElementById('our-data').innerHTML = escaped
+  }
+}
+
+function readTheirData () {
+  try {
+    var theirescapedstring = document.getElementById('their-data').value
+    var unescaped = unescape(theirescapedstring)
+    var parsed = JSON.parse(unescaped)
+    return parsed
+  } catch (e) {
+    log('error parsing remote data.', e)
+    return
+  }
 }
 
 peer.onicecandidate = function (e) {
   if (!e.candidate) return
-  log('got ice candidate', e)
-  ws.send(JSON.stringify({
-    action: 'candidate',
-    to: other,
-    data: e.candidate
-  }))
+  log('got local ice candidate.')
+  ourdata.candidates.push(e.candidate)
+  writeOurData()
 }
 
-var ws = new WebSocket('wss://sky-sound.gomix.me/')
-ws.onopen = e => log('websocket opened')
-ws.onclose = e => log('websocket closed')
-ws.onmessage = e => {
-  log('websocket message', e.data)
-  var data = JSON.parse(e.data)
-  if (data.to === me) {
-    switch (data.action) {
-      case 'candidate':
-        peer.addIceCandidate(new RTCIceCandidate(data.data))
-          .then(() => log('added ice candidate'))
-          .catch(e => log('add ice error', e))
-        break
-      case 'offer':
-        peer.setRemoteDescription(new RTCSessionDescription(data
-.data))
-          .then(() => peer.createAnswer())
-          .then(sdp => {
-            ws.send(JSON.stringify({
-              action: 'answer',
-              to: other,
-              data: sdp
-            }))
-            peer.setLocalDescription(sdp)
-          })
-          .then(() => log('offer handled'))
-          .catch(e => log('error handling offer', e))
-        break
-      case 'answer':
-        peer.setRemoteDescription(new RTCSessionDescription(data.data))
-          .then(() => log('answer handled'))
-          .catch(e => log('error handling answer', e))
-        break
+document.getElementById('their-data-ok').addEventListener('click', function (e) {
+  e.preventDefault()
+
+  var theirdata = readTheirData()
+  if (!theirdata) return
+
+  peer.setRemoteDescription(new RTCSessionDescription(theirdata.desc))
+  .then(() => log('remote description handled'))
+  .then(() => {
+    // add remote ice candidates
+    for (var i = 0; i < theirdata.candidates.length; i++) {
+      var candidate = theirdata.candidates[i]
+      peer.addIceCandidate(new RTCIceCandidate(candidate))
+      .then(() => log('added remote ice candidate.'))
+      .catch(e => log('add ice error.', e))
     }
-  }
-}
+  })
+  .then(() => {
+    if (position === 'answerer') {
+      // means this is an offer to which we must answer
+      peer.createAnswer()
+      .then(sdp => {
+        ourdata.desc = sdp
+        writeOurData()
+        peer.setLocalDescription(sdp)
+      })
+      .catch(e => log('error creating local description.', e))
+    } else {
+      // means this is an answer to an offer we've made before
+      log('manual steps are done.')
+    }
+  })
+  .catch(e => log('error handling remote description.', e))
+})
 
-function connect () {
+function start() {
+  document.getElementById('our-data').value = ''
+  document.getElementById('their-data').value = ''
+
   channel = peer.createDataChannel('main-channel')
-  channel.onopen = e => log('channel opened', e)
-  channel.onclose = e => log('channel closed', e)
-  channel.onmessage = e => log('got message', e)
+  channel.onopen = e => {
+    log('channel opened.')
+    replicate()
+  }
+  channel.onclose = e => log('channel closed.')
+  channel.onmessage = e => log('got message.')
 
+  position = 'offerer'
   peer.createOffer()
     .then(sdp => {
+      ourdata.desc = sdp
       peer.setLocalDescription(sdp)
-      ws.send(JSON.stringify({
-        action: 'offer',
-        to: other,
-        data: sdp
-      }))
+      writeOurData()
     })
-    .catch(e => log('error creating and sending offer', e))
+    .catch(e => log('error creating offer.', e))
 }
 
 function replicate () {
+  if (!channel || channel.readyState !== 'open') {
+    return
+  }
+
   replicator.on('endpeerreplicate', function () {
     log('received data from replication')
   })
   
-  log('starting replication')
-  replicator.addPeer(other, channel)
+  log('starting replication.')
+  replicator.addPeer('remote', channel)
   replicator.replicate()
 }
 </script>
