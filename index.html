@@ -8,7 +8,6 @@ pre {
   width: 40%;
   margin-left: 5%;
   overflow: hidden;
-  height: 400px;
 }
 #changes,
 #logger { white-space: pre-wrap; }
@@ -29,7 +28,7 @@ pre {
 }
 </style>
 
-<script src=words.js></script>
+<script src=https://cdn.rawgit.com/fiatjaf/haikunator-porreta/f876f8e/dist/haikunator-porreta.min.js></script>
 
 <div>
   <button id="start">start</button>
@@ -52,7 +51,7 @@ pre {
 
 <div>
   <pre><h5>log</h5><code id="logger"></code></pre>
-  <pre><h5>documents</h5><code id="changes"></code><br><button id="destroy">erase</button></pre>
+  <pre><h5>documents <button id="destroy">erase</button></h5><code id="changes"></code><br></pre>
 </div>
 
 <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
@@ -91,14 +90,10 @@ createDatabase()
 
 var changelogger = document.getElementById('changes')
 
-function randomWord () {
-  return words[parseInt(Math.random() * words.length)]
-}
 document.getElementById('add').addEventListener('click', () => {
   db.put({
-    _id: randomWord() + '-' + randomWord(),
+    _id: haikunate(),
     value: parseInt(Math.random() * 100),
-    phrase: [randomWord(), randomWord(), randomWord(), randomWord(), randomWord()].join(' ') + '.'
   })
   .then(() => replicate())
 })
