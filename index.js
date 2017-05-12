@@ -1,9 +1,8 @@
-'use strict'
-
 var stream = require('stream')
 var replicationStream = require('pouchdb-replication-stream')
 var concat = require('concat-stream')
 var util = require('util')
+var extend = require('pouchdb-extend')
 var ReplicatorCommon = require('replicate-common')
 
 var PouchReplicator = function (name, PouchDB, db, replicationOptions) {
@@ -39,7 +38,7 @@ PouchReplicator.prototype._getAndClearData = function () {
   self.replData = []
 
   var s = self._createStream(data)
-  self.db.load(s, this.replicationOptions)
+  self.db.load(s)
   .then(function (res) {
     self.emit('endpeerreplicate')
   })
@@ -61,7 +60,7 @@ PouchReplicator.prototype.receiveData = function (chunk) {
  * Start PouchDB replication
  @ @return  {Promise}
  */
-PouchReplicator.prototype.replicate = function () {
+PouchReplicator.prototype.replicate = function (options) {
   var self = this
 
   var database = ''
@@ -69,13 +68,11 @@ PouchReplicator.prototype.replicate = function () {
     database += line
   })
 
-  var p = self.db.dump(concatStream)
+  return self.db.dump(concatStream, extend(this.replicationOptions, options))
   .then(function () {
     self.streams.forEach(function (s) {
       s.write(database)
       s.write(self.marker)
     })
   })
-
-  return p
 }

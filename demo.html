@@ -1,0 +1,233 @@
+<!doctype html>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width, initial-scale=1">
+<title>pouchdb replication over webrtc</title>
+
+<style>
+div { margin-top: 20px; }
+pre {
+  float: left;
+  width: 40%;
+  margin-left: 5%;
+  overflow: hidden;
+}
+#changes,
+#logger { white-space: pre-wrap; }
+#their-data,
+#our-data {
+  height: 100px;
+  width: 100%;
+  display: block;
+  margin-bottom: 5px;
+}
+#our-data {
+  background-color: wheat;
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-all;
+  height: 100px;
+  overflow-y: scroll;
+}
+</style>
+
+<script src=https://cdn.rawgit.com/fiatjaf/haikunator-porreta/f876f8e/dist/haikunator-porreta.min.js></script>
+
+<div>
+  <button id="start">start</button>
+</div>
+
+<div>
+  <label>our data (send this to your peer): <code id="our-data" readonly></code></label>
+</div>
+<div>
+  <label>their data (paste data received from your peer here):
+    <textarea id="their-data"></textarea>
+  </label>
+  <button id="their-data-ok">ok</button>
+</div>
+
+<div>
+  add document to local pouchdb:
+  <button id="add">add a random document</button>
+</div>
+
+<div>
+  <pre><h5>log</h5><code id="logger"></code></pre>
+  <pre><h5>documents <button id="destroy">erase</button></h5><code id="changes"></code><br></pre>
+</div>
+
+<script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pouchdb/6.0.6/pouchdb.min.js"></script>
+<script src="https://cdn.rawgit.com/fiatjaf/pouch-replicate-webrtc/26ee76a7b027f524d97d39c1a28f8
+ae037e80f15/dist/pouch-replicate-webrtc.js"></script>
+<script>
+
+var position = 'answerer' // or 'offerer' -- offerer is whoever clicks on 'start' first
+
+var logcount = 0
+var logger = document.getElementById('logger')
+var log = function () {
+  console.log.apply(console, arguments)
+  logcount++
+  logger.innerHTML = logcount + '. ' + arguments[0] + '\n' + logger.innerHTML
+}
+
+document.getElementById('start').addEventListener('click', start)
+
+var db
+var replicator
+
+function createDatabase () {
+  db = new PouchDB('webrtc-replicated-pouch')
+  replicator = new PouchReplicator('replicator', PouchDB, db, {batch_size: 50})
+  log('created pouch database')
+
+  db.changes({include_docs: true, live: true, return_docs: false})
+    .on('change', change => {
+      changelogger.innerHTML = JSON.stringify(change.doc, null, 2) + '\n\n' + changelogger.innerHTML
+    })
+    .on('error', e => log('pouchdb changes error.', e))
+}
+createDatabase()
+
+var changelogger = document.getElementById('changes')
+
+document.getElementById('add').addEventListener('click', () => {
+  db.put({
+    _id: haikunate(),
+    value: parseInt(Math.random() * 100),
+  })
+  .then(() => replicate())
+})
+
+document.getElementById('destroy').addEventListener('click', () => {
+  db.destroy()
+    .then(() => {
+      log('database destroyed')
+      changelogger.innerHTML = ''
+      createDatabase()
+    })
+    .catch(e => log('error erasing db.', e))
+})
+
+var peer = new RTCPeerConnection({iceServers: [
+  {urls: ['stun:stun.l.google.com:19305']},
+  {urls: ['stun:stun1.l.google.com:19305']}
+]})
+
+var channel
+
+peer.ondatachannel = function (e) {
+  channel = e.channel
+  channel.onopen = e => {
+    log('channel opened.', e)
+    replicate()
+  }
+  channel.onclose = e => log('channel closed.')
+  channel.onmessage = e => log('got message.')
+}
+
+var ourdata = {candidates: [], desc: null}
+
+function writeOurData () {
+  if (ourdata.desc && ourdata.candidates.length > 0) {
+    var jsonstring = JSON.stringify(ourdata)
+    var escaped = escape(jsonstring)
+    document.getElementById('our-data').innerHTML = escaped
+  }
+}
+
+function readTheirData () {
+  try {
+    var theirescapedstring = document.getElementById('their-data').value
+    var unescaped = unescape(theirescapedstring)
+    var parsed = JSON.parse(unescaped)
+    return parsed
+  } catch (e) {
+    log('error parsing remote data.', e)
+    return
+  }
+}
+
+peer.onicecandidate = function (e) {
+  if (!e.candidate) return
+  log('got local ice candidate.')
+  ourdata.candidates.push(e.candidate)
+  writeOurData()
+}
+
+document.getElementById('their-data-ok').addEventListener('click', function (e) {
+  e.preventDefault()
+
+  var theirdata = readTheirData()
+  if (!theirdata) return
+
+  peer.setRemoteDescription(new RTCSessionDescription(theirdata.desc))
+  .then(() => log('remote description handled.'))
+  .then(() => {
+    // add remote ice candidates
+    for (var i = 0; i < theirdata.candidates.length; i++) {
+      var candidate = theirdata.candidates[i]
+      peer.addIceCandidate(new RTCIceCandidate(candidate))
+      .then(() => log('added remote ice candidate.'))
+      .catch(e => log('add ice error.', e))
+    }
+  })
+  .then(() => {
+    if (position === 'answerer') {
+      // means this is an offer to which we must answer
+      peer.createAnswer()
+      .then(sdp => {
+        ourdata.desc = sdp
+        writeOurData()
+        peer.setLocalDescription(sdp)
+      })
+      .catch(e => log('error creating local description.', e))
+    } else {
+      // means this is an answer to an offer we've made before
+      log('manual steps are done.')
+    }
+  })
+  .catch(e => log('error handling remote description.', e))
+})
+
+function start() {
+  document.getElementById('our-data').value = ''
+  document.getElementById('their-data').value = ''
+
+  channel = peer.createDataChannel('main-channel')
+  channel.onopen = e => {
+    log('channel opened.')
+    replicate()
+  }
+  channel.onclose = e => log('channel closed.')
+  channel.onmessage = e => log('got message.')
+
+  position = 'offerer'
+  peer.createOffer()
+    .then(sdp => {
+      ourdata.desc = sdp
+      peer.setLocalDescription(sdp)
+      writeOurData()
+    })
+    .catch(e => log('error creating offer.', e))
+}
+
+function replicate () {
+  if (!channel || channel.readyState !== 'open') {
+    return
+  }
+
+  replicator.on('endpeerreplicate', function () {
+    log('received data from peer.')
+  })
+  
+  log('starting replication.')
+  replicator.addPeer('remote', channel)
+  replicator.replicate()
+    .then(() => log('sent data to peer.'))
+    .catch(e => log('error while sending data to peer.', e))
+}
+</script>
+
+<a href="https://github.com/fiatjaf/pouch-replicate-webrtc"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://camo.githubusercontent.com/a6677b08c955af8400f44c6298f40e7d19cc5b2d/68747470733a2f2f73332e616d617a6f6e6177732e636f6d2f6769746875622f726962626f6e732f666f726b6d655f72696768745f677261795f3664366436642e706e67" alt="Fork me on GitHub" data-canonical-src="https://s3.amazonaws.com/github/ribbons/forkme_right_gray_6d6d6d.png"></a>
