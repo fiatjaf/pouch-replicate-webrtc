@@ -17,7 +17,7 @@ This library can be used both on Serverside and on Clientside.
 ### On Serverside, using NodeJS
 
 ```
-$ npm install --save pouch-replicate-webrtc
+$ npm install --save fiatjaf/pouch-replicate-webrtc
 ```
 
 ### On Clientside
